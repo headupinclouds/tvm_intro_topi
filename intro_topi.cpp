@@ -11,6 +11,9 @@
 #include <tvm/runtime/registry.h>
 #include <tvm/runtime/packed_func.h>
 
+#include <random>
+#include <iostream>
+
 inline int64_t sum(int64_t values[], int64_t num)
 {
     int64_t value = values[0];
@@ -80,16 +83,22 @@ void Verify(tvm::runtime::Module mod, std::string fname)
   std::vector<float> kern_mem(kern_size);
   std::vector<float> outp_mem(outp_size);
 
+  std::random_device rd;  //Will be used to obtain a seed for the random number engine
+  std::mt19937 gen(0); //Standard mersenne_twister_engine seeded with rd()
+  std::uniform_real_distribution<> dis(-1.0, 1.0);
+
   for (int i = 0; i < data_size; ++i)
   {
-    data_mem[i] = 1.0f;
+    data_mem[i] = dis(gen);
+    std::cout << "data[" << i << "] = " << data_mem[i] << std::endl;
   }
 
   TVMArrayCopyFromBytes(data, data_mem.data(), data_size * sizeof(float));
 
   for (int i = 0; i < kern_size; ++i)
   {
-    kern_mem[i] = (1.0f/75.0f);
+    kern_mem[i] = dis(gen);
+    std::cout << "kern[" << i << "] = " << kern_mem[i] << std::endl;
   }
 
   TVMArrayCopyFromBytes(kern, kern_mem.data(), kern_size * sizeof(float));
