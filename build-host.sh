@@ -9,8 +9,8 @@ cmake_args=(
 )
 
 platforms=(
-    "vulkan;vulkan;None"
     "cpu;llvm;None"
+    "vulkan;vulkan;None"
     "cuda;cuda;None"
     "opencl;opencl;None"
     "opengl;opengl;None"
