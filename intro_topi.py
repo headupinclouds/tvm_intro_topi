@@ -90,28 +90,41 @@ elif target=='metal':
 else:
     raise ValueError('No supported context type for ' % target)
 
-data = tvm.placeholder((1, 3, 224, 224), name='data')
-kern = tvm.placeholder((10, 3, 5, 5), name='kern')
+data     = tvm.placeholder((1, 3, 224, 224), name='data')
+kern     = tvm.placeholder((64, 3, 7, 7), name='kern')
+
+bn_gamma = tvm.placeholder((64,), name='bn_gamma')
+bn_beta  = tvm.placeholder((64,), name='bn_beta')
+bn_mean  = tvm.placeholder((64,), name='bn_mean')
+bn_var   = tvm.placeholder((64,), name='bn_var')
 
 dtype = data.dtype
 
 data_np = np.ones(shape=get_const_tuple(data.shape)).astype(dtype)
 kern_np = np.ones(shape=get_const_tuple(kern.shape)).astype(dtype) * (1.0/75.0)
 
+bn_gamma_np = np.ones(shape=get_const_tuple(bn_gamma.shape)).astype(dtype)
+bn_beta_np  = np.zeros(shape=get_const_tuple(bn_beta.shape)).astype(dtype)
+bn_mean_np  = np.zeros(shape=get_const_tuple(bn_mean.shape)).astype(dtype)
+bn_var_np  = np.ones(shape=get_const_tuple(bn_var.shape)).astype(dtype)
+
+# self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
+# self.features.add(nn.BatchNorm())
+# self.features.add(nn.Activation('relu'))
+# self.features.add(nn.MaxPool2D(3, 2, 1))
+
 with tvm.target.create(target):
-    conv = topi.nn.conv2d(data, kern, strides=1, padding=2)
-    outp = topi.nn.relu(conv)
-    sconv = topi.generic.nn.schedule_conv2d_nchw([outp])
+    conv  = topi.nn.conv2d(data, kern, strides=2, padding=3)
+    bn    = topi.nn.batch_norm_inference(conv, bn_gamma, bn_beta, bn_mean, bn_var, eps=0.00001, fix_gamma=False)
+    relu  = topi.nn.relu(bn)
+    sconv = topi.generic.nn.schedule_conv2d_nchw([relu])
 
-print(tvm.lower(sconv, [data, kern, outp], simple_mode=True))
+print(tvm.lower(sconv, [data, kern, bn_gamma, bn_beta, bn_mean, bn_var, relu], simple_mode=True))
 
-#func = tvm.build(sconv, [data, kern, outp], target=target, target_host=target_host, name="intro_topi")
-
-func = tvm.build(sconv, [data, kern, outp], target=target, target_host=target_host, name="intro_topi")
+func = tvm.build(sconv, [data, kern, bn_gamma, bn_beta, bn_mean, bn_var, relu], target=target, target_host=target_host, name="intro_topi")
 
 if is_android:
     print("build for android")
-    
     func.export_library('intro_topi.so', tvm.contrib.ndk.create_shared, options=[
         "-g",
         "-shared",
@@ -125,13 +138,20 @@ if is_android:
 else:
     func.export_library("intro_topi.so")
 
-outp_shape = get_const_tuple(outp.shape)
+relu_shape = get_const_tuple(relu.shape)
+
+print('relu_shape', relu_shape)
+
 data_ = tvm.nd.array(data_np, ctx)
 kern_ = tvm.nd.array(kern_np, ctx)
-outp_ = tvm.nd.array(np.zeros(outp_shape, dtype=dtype), ctx)
 
-func(data_, kern_, outp_)
+bn_gamma_ = tvm.nd.array(bn_gamma_np, ctx)
+bn_beta_  = tvm.nd.array(bn_beta_np, ctx) 
+bn_mean_  = tvm.nd.array(bn_mean_np, ctx)
+bn_var_   = tvm.nd.array(bn_var_np, ctx)
 
-print("outp", outp_)
-print("out_shape ", outp_shape)
-print("done")
+relu_ = tvm.nd.array(np.zeros(relu_shape, dtype=dtype), ctx)
+
+func(data_, kern_, bn_gamma_, bn_beta_, bn_mean_, bn_var_, relu_)
+
+print("relu", relu_)
