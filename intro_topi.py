@@ -93,20 +93,17 @@ else:
 data     = tvm.placeholder((1, 3, 224, 224), name='data')
 kern     = tvm.placeholder((64, 3, 7, 7), name='kern')
 
-bn_gamma = tvm.placeholder((64,), name='bn_gamma')
-bn_beta  = tvm.placeholder((64,), name='bn_beta')
-bn_mean  = tvm.placeholder((64,), name='bn_mean')
-bn_var   = tvm.placeholder((64,), name='bn_var')
+# set dimensinos for auto broadcasting
+bn_gamma = tvm.placeholder((1,64,1,1), name='bn_gamma')
+bn_beta  = tvm.placeholder((1,64,1,1), name='bn_beta')
 
 dtype = data.dtype
 
 data_np = np.ones(shape=get_const_tuple(data.shape)).astype(dtype)
-kern_np = np.ones(shape=get_const_tuple(kern.shape)).astype(dtype) * (1.0/75.0)
+kern_np = np.ones(shape=get_const_tuple(kern.shape)).astype(dtype) * (1.0/(7*7*3))
 
 bn_gamma_np = np.ones(shape=get_const_tuple(bn_gamma.shape)).astype(dtype)
 bn_beta_np  = np.zeros(shape=get_const_tuple(bn_beta.shape)).astype(dtype)
-bn_mean_np  = np.zeros(shape=get_const_tuple(bn_mean.shape)).astype(dtype)
-bn_var_np  = np.ones(shape=get_const_tuple(bn_var.shape)).astype(dtype)
 
 # self.features.add(nn.Conv2D(channels[0], 7, 2, 3, use_bias=False))
 # self.features.add(nn.BatchNorm())
@@ -115,13 +112,17 @@ bn_var_np  = np.ones(shape=get_const_tuple(bn_var.shape)).astype(dtype)
 
 with tvm.target.create(target):
     conv  = topi.nn.conv2d(data, kern, strides=2, padding=3)
-    bn    = topi.nn.batch_norm_inference(conv, bn_gamma, bn_beta, bn_mean, bn_var, eps=0.00001, fix_gamma=False)
-    relu  = topi.nn.relu(bn)
+    mult = topi.multiply(conv, bn_gamma)
+    add = topi.add(mult, bn_beta)
+    relu  = topi.nn.relu(add)
     sconv = topi.generic.nn.schedule_conv2d_nchw([relu])
 
-print(tvm.lower(sconv, [data, kern, bn_gamma, bn_beta, bn_mean, bn_var, relu], simple_mode=True))
+    sconv[add].compute_inline()
+    sconv[mult].compute_inline()
 
-func = tvm.build(sconv, [data, kern, bn_gamma, bn_beta, bn_mean, bn_var, relu], target=target, target_host=target_host, name="intro_topi")
+print(tvm.lower(sconv, [data, kern, bn_gamma, bn_beta, relu], simple_mode=True))
+
+func = tvm.build(sconv, [data, kern, bn_gamma, bn_beta, relu], target=target, target_host=target_host, name="intro_topi")
 
 if is_android:
     print("build for android")
@@ -147,11 +148,9 @@ kern_ = tvm.nd.array(kern_np, ctx)
 
 bn_gamma_ = tvm.nd.array(bn_gamma_np, ctx)
 bn_beta_  = tvm.nd.array(bn_beta_np, ctx) 
-bn_mean_  = tvm.nd.array(bn_mean_np, ctx)
-bn_var_   = tvm.nd.array(bn_var_np, ctx)
 
 relu_ = tvm.nd.array(np.zeros(relu_shape, dtype=dtype), ctx)
 
-func(data_, kern_, bn_gamma_, bn_beta_, bn_mean_, bn_var_, relu_)
+func(data_, kern_, bn_gamma_, bn_beta_, relu_)
 
 print("relu", relu_)

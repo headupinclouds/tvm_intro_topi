@@ -9,8 +9,8 @@ cmake_args=(
 )
 
 platforms=(
-    "cpu;llvm;None"
     "vulkan;vulkan;None"
+    "cpu;llvm;None"
     "cuda;cuda;None"
     "opencl;opencl;None"
     "opengl;opengl;None"
@@ -31,7 +31,7 @@ for info in ${platforms[@]}; do
 
     # Build the C++ executable:
     mkdir -p ${target_dir}
-    #[ -f ${target_dir}/CMakeCache.txt ] && rm ${target_dir}/CMakeCache.txt
+    [ -f ${target_dir}/CMakeCache.txt ] && rm ${target_dir}/CMakeCache.txt
     cmake ${cmake_args[@]} -B${target_dir} -DTCT_USE_${target_upper}=ON && cmake --build ${target_dir}
 
     # Create the TVM shared library module:
@@ -39,7 +39,7 @@ for info in ${platforms[@]}; do
     (
 	cd $target_dir
 	python ${pycmd} --target=${target} --target-host=${target_host}
-    	./intro_topi ${PWD}/intro_topi.so intro_topi
+    	./intro_topi ${PWD}/intro_topi.so intro_topi | tee output.txt
     )
 
     exit

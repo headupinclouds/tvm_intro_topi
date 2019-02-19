@@ -23,6 +23,62 @@ inline int64_t sum(int64_t values[], int64_t num)
     }
     return value;
 }
+
+
+// Iterator for N dimensional array
+inline void iterate(int dimensions, int64_t* ordinates, int64_t* maximums)
+{
+    for (int d = dimensions - 1; d >= 0; d--)
+    {
+        if ((ordinates[d]+1) < maximums[d])
+        {
+            ordinates[d]++;
+            break;
+        }
+
+        ordinates[d] = 0;
+    }
+}
+
+// Print DLTensor in flat diff friendly 'value[i,j,k...] = value' format:
+void print(DLTensor *layer_output, const std::string &name, const std::vector<float> &values, std::ostream &os)
+{
+    std::vector<int64_t> ord( layer_output->ndim , 0);
+    for (int k = 0; k < static_cast<int>(values.size()); k++)
+    {
+        std::stringstream index, shape;
+        for(int d = 0; d < ord.size(); d++)
+        {
+            index << ord[d];
+            shape << layer_output->shape[d];
+            if(d < ord.size()-1)
+            {
+                index << ", ";
+                shape << ", ";
+            }
+        }
+
+        std::stringstream ss;
+        ss  << name
+            << "["
+            << index.str()
+            << "] = "
+            << "{"
+            << shape.str()
+            << "} = "
+            << values[k]
+#if TUI_TEST_DEBUG_GET_OUTPUT
+            << " "
+            << values2[k]
+#endif
+          ;
+
+        os << ss.str() << std::endl;
+
+	iterate(layer_output->ndim, ord.data(), layer_output->shape);
+    }
+}
+
 void Verify(tvm::runtime::Module mod, std::string fname)
 {
   // Get the function from the module.
@@ -43,11 +99,8 @@ void Verify(tvm::runtime::Module mod, std::string fname)
   DLTensor* data;
   DLTensor* kern;
   DLTensor* relu;
-
   DLTensor* gamma;
   DLTensor* beta;
-  DLTensor* mean;
-  DLTensor* var;
 
   int dtype_code = kDLFloat;
   int dtype_bits = 32;
@@ -84,12 +137,10 @@ void Verify(tvm::runtime::Module mod, std::string fname)
   int64_t relu_size = sum(relu_shape, 4);
   TVMArrayAlloc(relu_shape, 4, dtype_code, dtype_bits, dtype_lanes, device_type, device_id, &relu);
 
-  int64_t bn_shape[1] = { 64 };
+  int64_t bn_shape[4] = { 1, 64, 1, 1 };
   int64_t bn_size = sum(bn_shape, 1);
-  TVMArrayAlloc(bn_shape, 1, dtype_code, dtype_bits, dtype_lanes, device_type, device_id, &gamma);
-  TVMArrayAlloc(bn_shape, 1, dtype_code, dtype_bits, dtype_lanes, device_type, device_id, &beta);
-  TVMArrayAlloc(bn_shape, 1, dtype_code, dtype_bits, dtype_lanes, device_type, device_id, &mean);
-  TVMArrayAlloc(bn_shape, 1, dtype_code, dtype_bits, dtype_lanes, device_type, device_id, &var);
+  TVMArrayAlloc(bn_shape, 4, dtype_code, dtype_bits, dtype_lanes, device_type, device_id, &gamma);
+  TVMArrayAlloc(bn_shape, 4, dtype_code, dtype_bits, dtype_lanes, device_type, device_id, &beta);
 
   std::vector<float> data_mem(data_size);
   std::vector<float> kern_mem(kern_size);
@@ -97,8 +148,6 @@ void Verify(tvm::runtime::Module mod, std::string fname)
 
   std::vector<float> gamma_mem(64);
   std::vector<float> beta_mem(64);
-  std::vector<float> mean_mem(64);
-  std::vector<float> var_mem(64);
 
   std::random_device rd;  //Will be used to obtain a seed for the random number engine
   std::mt19937 gen(0); //Standard mersenne_twister_engine seeded with rd()
@@ -106,7 +155,7 @@ void Verify(tvm::runtime::Module mod, std::string fname)
 
   for (int i = 0; i < data_size; ++i)
   {
-    data_mem[i] = dis(gen);
+    data_mem[i] = 1.f; // dis(gen);
     std::cout << "data[" << i << "] = " << data_mem[i] << std::endl;
   }
 
@@ -114,7 +163,7 @@ void Verify(tvm::runtime::Module mod, std::string fname)
 
   for (int i = 0; i < kern_size; ++i)
   {
-    kern_mem[i] = dis(gen);
+    kern_mem[i] = 1.f; // dis(gen);
     std::cout << "kern[" << i << "] = " << kern_mem[i] << std::endl;
   }
 
@@ -124,36 +173,32 @@ void Verify(tvm::runtime::Module mod, std::string fname)
   {
     gamma_mem[i] = 1.f;
     beta_mem[i] = 0.f;
-    mean_mem[i] = 0.f;
-    var_mem[i] = 1.f;
   }
   TVMArrayCopyFromBytes(gamma, gamma_mem.data(), 64 * sizeof(float));
   TVMArrayCopyFromBytes(beta, beta_mem.data(), 64 * sizeof(float));
-  TVMArrayCopyFromBytes(mean, mean_mem.data(), 64 * sizeof(float));
-  TVMArrayCopyFromBytes(var, var_mem.data(), 64 * sizeof(float));
 
   // Invoke the function
   // PackedFunc is a function that can be invoked via positional argument.
   // The signature of the function is specified in tvm.build
-  auto result = f(data, kern, gamma, beta, mean, var, relu);
+  auto result = f(data, kern, gamma, beta, relu);
 
   TVMArrayCopyToBytes(relu, relu_mem.data(), relu_size * sizeof(float));
 
-  // Print out the reluut
+  #if 1
+  print(relu, "relu", relu_mem, std::cout);
+  #else
+  // Print out the relu
   for (int i = 0; i < relu_size; ++i)
   {
     std::cout << "relu[" << i << "]=" << relu_mem[i] << std::endl;
   }
+  #endif
 
   LOG(INFO) << "Free arrays ...";      
   TVMArrayFree(data);
   TVMArrayFree(kern);
-
   TVMArrayFree(gamma);
   TVMArrayFree(beta);
-  TVMArrayFree(mean);
-  TVMArrayFree(var);
-  
   TVMArrayFree(relu);
       
   LOG(INFO) << "Finish verification...";

@@ -34,7 +34,7 @@ platforms=(
     "vulkan;vulkan;llvm -target=aarch64-linux-android"
     
     # The Android CPU path works fine
-    "cpu;llvm -target=aarch64-linux-android;None"        
+#    "cpu;llvm -target=aarch64-linux-android;None"
 
 )
 
